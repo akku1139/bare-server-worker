@@ -21,7 +21,7 @@ export class BareError extends Error {
 const project: BareProject = {
 	name: 'bare-server-worker',
 	description: 'TOMPHTTP Cloudflare Bare Server',
-	repository: 'https://github.com/tomphttp/bare-server-worker',
+	repository: 'https://github.com/akku1139/bare-server-worker',
 	version: '1.2.2',
 };
 
@@ -112,7 +112,7 @@ export default class Server extends EventTarget {
 	}
 	get instanceInfo(): BareManifest {
 		return {
-			versions: ['v1', 'v2'],
+			versions: ['v1', 'v2', 'v3'],
 			language: 'Cloudflare',
 			maintainer: this.options.maintainer,
 			project,

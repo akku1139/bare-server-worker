@@ -5,6 +5,7 @@ import { JSONDatabaseAdapter } from './Meta.js';
 import { cleanupDatabase } from './Meta.js';
 import registerV1 from './V1.js';
 import registerV2 from './V2.js';
+import registerV3 from './V3.js';
 
 interface BareServerInit {
 	logErrors?: boolean;
@@ -42,8 +43,10 @@ export default function createBareServer(
 		...init,
 		database: new JSONDatabaseAdapter(init.database),
 	});
+	// if(legacySupport)
 	registerV1(server);
 	registerV2(server);
+	registerV3(server);
 
 	server.addEventListener('close', () => {
 		for (const cb of cleanup) cb();
