@@ -112,7 +112,7 @@ export default class Server extends EventTarget {
 	}
 	get instanceInfo(): BareManifest {
 		return {
-			versions: ['v1', 'v2', 'v3'],
+			versions: ['v3'],
 			language: 'Cloudflare',
 			maintainer: this.options.maintainer,
 			project,

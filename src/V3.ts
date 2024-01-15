@@ -1,23 +1,12 @@
-import { Readable } from 'node:stream';
-import type WebSocket from 'ws';
-import type { MessageEvent } from 'ws';
-import type {
-	BareRequest,
-	RouteCallback,
-	SocketRouteCallback,
-} from './BareServer.js';
+import type { RouteCallback } from './BareServer.js';
 import { BareError } from './BareServer.js';
 import type Server from './BareServer.js';
-import {
-	flattenHeader,
-	mapHeadersFromArray,
-	rawHeaderNames,
-} from './headerUtil.js';
-import { remoteToURL, urlToRemote } from './remoteUtil.js';
-import type { BareHeaders } from './requestUtil.js';
-import { bareFetch, nullBodyStatus, webSocketFetch } from './requestUtil.js';
+import type { BareHeaders, BareRemote } from './requestUtil.js';
+import { upgradeBareFetch } from './requestUtil.js';
+import { bareFetch, randomHex } from './requestUtil.js';
 import { joinHeaders, splitHeaders } from './splitHeaderUtil.js';
-import type { SocketClientToServer, SocketServerToClient } from './V3Types.js';
+
+const validProtocols: string[] = ['http:', 'https:', 'ws:', 'wss:'];
 
 const forbiddenForwardHeaders: string[] = [
 	'connection',
@@ -41,7 +30,13 @@ const forbiddenPassHeaders: string[] = [
 ];
 
 // common defaults
-const defaultForwardHeaders: string[] = ['accept-encoding', 'accept-language'];
+const defaultForwardHeaders: string[] = [
+	'accept-encoding',
+	'accept-language',
+	'sec-websocket-extensions',
+	'sec-websocket-key',
+	'sec-websocket-version',
+];
 
 const defaultPassHeaders: string[] = [
 	'content-encoding',
@@ -63,7 +58,7 @@ const cacheNotModified = 304;
 function loadForwardedHeaders(
 	forward: string[],
 	target: BareHeaders,
-	request: BareRequest
+	request: Request
 ) {
 	for (const header of forward) {
 		if (request.headers.has(header)) {
@@ -75,15 +70,16 @@ function loadForwardedHeaders(
 const splitHeaderValue = /,\s*/g;
 
 interface BareHeaderData {
-	remote: URL;
+	remote: BareRemote;
 	sendHeaders: BareHeaders;
 	passHeaders: string[];
 	passStatus: number[];
 	forwardHeaders: string[];
 }
 
-function readHeaders(request: BareRequest): BareHeaderData {
-	const sendHeaders: BareHeaders = Object.create(null);
+function readHeaders(request: Request): BareHeaderData {
+	const remote = Object.setPrototypeOf({}, null);
+	const sendHeaders = Object.setPrototypeOf({}, null);
 	const passHeaders = [...defaultPassHeaders];
 	const passStatus = [];
 	const forwardHeaders = [...defaultForwardHeaders];
@@ -99,68 +95,93 @@ function readHeaders(request: BareRequest): BareHeaderData {
 
 	const headers = joinHeaders(request.headers);
 
-	const xBareURL = headers.get('x-bare-url');
+	for (const remoteProp of ['host', 'port', 'protocol', 'path']) {
+		const header = `x-bare-${remoteProp}`;
 
-	if (xBareURL === null)
-		throw new BareError(400, {
-			code: 'MISSING_BARE_HEADER',
-			id: `request.headers.x-bare-url`,
-			message: `Header was not specified.`,
-		});
+		if (headers.has(header)) {
+			const value = headers.get(header)!;
 
-	const remote = urlToRemote(new URL(xBareURL));
+			switch (remoteProp) {
+				case 'port':
+					if (isNaN(parseInt(value))) {
+						throw new BareError(400, {
+							code: 'INVALID_BARE_HEADER',
+							id: `request.headers.${header}`,
+							message: `Header was not a valid integer.`,
+						});
+					}
+					break;
+				case 'protocol':
+					if (!validProtocols.includes(value)) {
+						throw new BareError(400, {
+							code: 'INVALID_BARE_HEADER',
+							id: `request.headers.${header}`,
+							message: `Header was invalid`,
+						});
+					}
+					break;
+			}
 
-	const xBareHeaders = headers.get('x-bare-headers');
+			remote[remoteProp] = value;
+		} else {
+			throw new BareError(400, {
+				code: 'MISSING_BARE_HEADER',
+				id: `request.headers.${header}`,
+				message: `Header was not specified.`,
+			});
+		}
+	}
 
-	if (xBareHeaders === null)
+	if (headers.has('x-bare-headers')) {
+		try {
+			const json = JSON.parse(headers.get('x-bare-headers')!);
+
+			for (const header in json) {
+				const value = json[header];
+
+				if (typeof value === 'string') {
+					sendHeaders[header] = value;
+				} else if (Array.isArray(value)) {
+					const array = [];
+
+					for (const val in value) {
+						if (typeof val !== 'string') {
+							throw new BareError(400, {
+								code: 'INVALID_BARE_HEADER',
+								id: `bare.headers.${header}`,
+								message: `Header was not a String.`,
+							});
+						}
+
+						array.push(val);
+					}
+
+					sendHeaders[header] = array;
+				} else {
+					throw new BareError(400, {
+						code: 'INVALID_BARE_HEADER',
+						id: `bare.headers.${header}`,
+						message: `Header was not a String.`,
+					});
+				}
+			}
+		} catch (error) {
+			if (error instanceof SyntaxError) {
+				throw new BareError(400, {
+					code: 'INVALID_BARE_HEADER',
+					id: `request.headers.x-bare-headers`,
+					message: `Header contained invalid JSON. (${error.message})`,
+				});
+			} else {
+				throw error;
+			}
+		}
+	} else {
 		throw new BareError(400, {
 			code: 'MISSING_BARE_HEADER',
 			id: `request.headers.x-bare-headers`,
 			message: `Header was not specified.`,
 		});
-
-	try {
-		const json = JSON.parse(xBareHeaders) as Record<string, string | string[]>;
-
-		for (const header in json) {
-			const value = json[header];
-
-			if (typeof value === 'string') {
-				sendHeaders[header] = value;
-			} else if (Array.isArray(value)) {
-				const array: string[] = [];
-
-				for (const val of value) {
-					if (typeof val !== 'string') {
-						throw new BareError(400, {
-							code: 'INVALID_BARE_HEADER',
-							id: `bare.headers.${header}`,
-							message: `Header was not a String.`,
-						});
-					}
-
-					array.push(val);
-				}
-
-				sendHeaders[header] = array;
-			} else {
-				throw new BareError(400, {
-					code: 'INVALID_BARE_HEADER',
-					id: `bare.headers.${header}`,
-					message: `Header was not a String.`,
-				});
-			}
-		}
-	} catch (error) {
-		if (error instanceof SyntaxError) {
-			throw new BareError(400, {
-				code: 'INVALID_BARE_HEADER',
-				id: `request.headers.x-bare-headers`,
-				message: `Header contained invalid JSON. (${error.message})`,
-			});
-		} else {
-			throw error;
-		}
 	}
 
 	if (headers.has('x-bare-pass-status')) {
@@ -220,7 +241,7 @@ function readHeaders(request: BareRequest): BareHeaderData {
 	}
 
 	return {
-		remote: remoteToURL(remote),
+		remote,
 		sendHeaders,
 		passHeaders,
 		passStatus,
@@ -228,17 +249,7 @@ function readHeaders(request: BareRequest): BareHeaderData {
 	};
 }
 
-const tunnelRequest: RouteCallback = async (request, res, options) => {
-	const abort = new AbortController();
-
-	request.native.on('close', () => {
-		if (!request.native.complete) abort.abort();
-	});
-
-	res.on('close', () => {
-		abort.abort();
-	});
-
+const tunnelRequest: RouteCallback = async (request) => {
 	const { remote, sendHeaders, passHeaders, passStatus, forwardHeaders } =
 		readHeaders(request);
 
@@ -246,171 +257,153 @@ const tunnelRequest: RouteCallback = async (request, res, options) => {
 
 	const response = await bareFetch(
 		request,
-		abort.signal,
+		request.signal,
 		sendHeaders,
-		remote,
-		options
+		remote
 	);
 
 	const responseHeaders = new Headers();
 
-	for (const header of passHeaders) {
-		if (!(header in response.headers)) continue;
-		responseHeaders.set(header, flattenHeader(response.headers[header]!));
+	for (const [header, value] of passHeaders) {
+		if (!response.headers.has(header)) continue;
+		responseHeaders.set(header, value);
 	}
 
-	const status = passStatus.includes(response.statusCode!)
-		? response.statusCode!
-		: 200;
+	const status = passStatus.includes(response.status) ? response.status : 200;
 
 	if (status !== cacheNotModified) {
-		responseHeaders.set('x-bare-status', response.statusCode!.toString());
-		responseHeaders.set('x-bare-status-text', response.statusMessage!);
+		responseHeaders.set('x-bare-status', response.status.toString());
+		responseHeaders.set('x-bare-status-text', response.statusText);
 		responseHeaders.set(
 			'x-bare-headers',
-			JSON.stringify(
-				mapHeadersFromArray(rawHeaderNames(response.rawHeaders), {
-					...(<BareHeaders>response.headers),
-				})
-			)
+			JSON.stringify(Object.fromEntries(response.headers))
 		);
 	}
 
-	return new Response(
-		nullBodyStatus.includes(status) ? undefined : Readable.toWeb(response),
-		{
-			status,
-			headers: splitHeaders(responseHeaders),
-		}
-	);
+	return new Response(response.body, {
+		status,
+		headers: splitHeaders(responseHeaders),
+	});
 };
 
-function readSocket(socket: WebSocket): Promise<SocketClientToServer> {
-	return new Promise((resolve, reject) => {
-		const messageListener = (event: MessageEvent) => {
-			cleanup();
+const metaExpiration = 30e3;
 
-			if (typeof event.data !== 'string')
-				return reject(
-					new TypeError('the first websocket message was not a text frame')
-				);
+const getMeta: RouteCallback = async (request, options) => {
+	if (request.method === 'OPTIONS') {
+		return new Response(undefined, { status: 200 });
+	}
 
-			try {
-				resolve(JSON.parse(event.data));
-			} catch (err) {
-				reject(err);
-			}
-		};
+	if (!request.headers.has('x-bare-id')) {
+		throw new BareError(400, {
+			code: 'MISSING_BARE_HEADER',
+			id: 'request.headers.x-bare-id',
+			message: 'Header was not specified',
+		});
+	}
 
-		const closeListener = () => {
-			cleanup();
-		};
+	const id = request.headers.get('x-bare-id')!;
+	const meta = await options.database.get(id);
 
-		const cleanup = () => {
-			socket.removeEventListener('message', messageListener);
-			socket.removeEventListener('close', closeListener);
-			clearTimeout(timeout);
-		};
+	if (meta?.value.v !== 2)
+		throw new BareError(400, {
+			code: 'INVALID_BARE_HEADER',
+			id: 'request.headers.x-bare-id',
+			message: 'Unregistered ID',
+		});
 
-		const timeout = setTimeout(() => {
-			cleanup();
-			reject(new Error('Timed out before metadata could be read'));
-		}, 10e3);
+	if (!meta.value.response)
+		throw new BareError(400, {
+			code: 'INVALID_BARE_HEADER',
+			id: 'request.headers.x-bare-id',
+			message: 'Meta not ready',
+		});
 
-		socket.addEventListener('message', messageListener);
-		socket.addEventListener('close', closeListener);
+	await options.database.delete(id);
+
+	const responseHeaders = new Headers();
+
+	responseHeaders.set('x-bare-status', meta.value.response.status.toString());
+	responseHeaders.set('x-bare-status-text', meta.value.response.statusText);
+	responseHeaders.set(
+		'x-bare-headers',
+		JSON.stringify(meta.value.response.headers)
+	);
+
+	return new Response(undefined, {
+		status: 200,
+		headers: splitHeaders(responseHeaders),
 	});
-}
+};
 
-const tunnelSocket: SocketRouteCallback = async (
-	request,
-	socket,
-	head,
-	options
-) =>
-	options.wss.handleUpgrade(request.native, socket, head, async (client) => {
-		let _remoteSocket: WebSocket | undefined;
+const newMeta: RouteCallback = async (request, options) => {
+	const { remote, sendHeaders, forwardHeaders } = readHeaders(request);
 
-		try {
-			const connectPacket = await readSocket(client);
+	const id = randomHex(16);
 
-			if (connectPacket.type !== 'connect')
-				throw new Error('Client did not send open packet.');
-
-			loadForwardedHeaders(
-				connectPacket.forwardHeaders,
-				connectPacket.headers,
-				request
-			);
-
-			const [remoteReq, remoteSocket] = await webSocketFetch(
-				request,
-				connectPacket.headers,
-				new URL(connectPacket.remote),
-				connectPacket.protocols,
-				options
-			);
-
-			_remoteSocket = remoteSocket;
-
-			const setCookieHeader = remoteReq.headers['set-cookie'];
-			const setCookies =
-				setCookieHeader !== undefined
-					? Array.isArray(setCookieHeader)
-						? setCookieHeader
-						: [setCookieHeader]
-					: [];
-
-			client.send(
-				JSON.stringify({
-					type: 'open',
-					protocol: remoteSocket.protocol,
-					setCookies,
-				} as SocketServerToClient),
-				// use callback to wait for this message to buffer and finally send before doing any piping
-				// otherwise the client will receive a random message from the remote before our open message
-				() => {
-					remoteSocket.addEventListener('message', (event) => {
-						client.send(event.data);
-					});
-
-					client.addEventListener('message', (event) => {
-						remoteSocket.send(event.data);
-					});
-
-					remoteSocket.addEventListener('close', () => {
-						client.close();
-					});
-
-					client.addEventListener('close', () => {
-						remoteSocket.close();
-					});
-
-					remoteSocket.addEventListener('error', (error) => {
-						if (options.logErrors) {
-							console.error('Remote socket error:', error);
-						}
-
-						client.close();
-					});
-
-					client.addEventListener('error', (error) => {
-						if (options.logErrors) {
-							console.error('Serving socket error:', error);
-						}
-
-						remoteSocket.close();
-					});
-				}
-			);
-		} catch (err) {
-			if (options.logErrors) console.error(err);
-			client.close();
-			if (_remoteSocket) _remoteSocket.close();
-		}
+	await options.database.set(id, {
+		expires: Date.now() + metaExpiration,
+		value: {
+			v: 2,
+			remote,
+			sendHeaders,
+			forwardHeaders,
+		},
 	});
 
-export default function registerV3(server: Server) {
-	server.routes.set('/v3/', tunnelRequest);
-	server.socketRoutes.set('/v3/', tunnelSocket);
+	return new Response(id);
+};
+
+const tunnelSocket: RouteCallback = async (request, options) => {
+	const id = request.headers.get('sec-websocket-protocol');
+
+	if (!id)
+		throw new BareError(400, {
+			code: 'INVALID_BARE_HEADER',
+			id: `request.headers.sec-websocket-protocol`,
+			message: `Expected ID.`,
+		});
+
+	const meta = await options.database.get(id);
+
+	if (meta?.value.v !== 2)
+		throw new BareError(400, {
+			code: 'INVALID_BARE_HEADER',
+			id: `request.headers.sec-websocket-protocol`,
+			message: `Bad ID.`,
+		});
+
+	loadForwardedHeaders(
+		meta.value.forwardHeaders,
+		meta.value.sendHeaders,
+		request
+	);
+
+	const [remoteResponse, remoteSocket] = await upgradeBareFetch(
+		request,
+		request.signal,
+		meta.value.sendHeaders,
+		meta.value.remote
+	);
+
+	// https://developers.cloudflare.com/workers/learning/using-websockets
+	// returning it on to a client....
+	meta.value.response = {
+		headers: Object.fromEntries(remoteResponse.headers),
+		status: remoteResponse.status,
+		statusText: remoteResponse.statusText,
+	};
+
+	await options.database.set(id, meta);
+
+	return new Response(undefined, {
+		status: 101,
+		webSocket: remoteSocket,
+	});
+};
+
+export default function registerV2(server: Server) {
+	server.routes.set('/v2/', tunnelRequest);
+	server.routes.set('/v2/ws-new-meta', newMeta);
+	server.routes.set('/v2/ws-meta', getMeta);
+	server.socketRoutes.set('/v2/', tunnelSocket);
 }
