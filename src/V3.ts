@@ -6,8 +6,6 @@ import { upgradeBareFetch } from './requestUtil.js';
 import { bareFetch, randomHex } from './requestUtil.js';
 import { joinHeaders, splitHeaders } from './splitHeaderUtil.js';
 
-const validProtocols: string[] = ['http:', 'https:', 'ws:', 'wss:'];
-
 const forbiddenForwardHeaders: string[] = [
 	'connection',
 	'transfer-encoding',
@@ -33,9 +31,6 @@ const forbiddenPassHeaders: string[] = [
 const defaultForwardHeaders: string[] = [
 	'accept-encoding',
 	'accept-language',
-	'sec-websocket-extensions',
-	'sec-websocket-key',
-	'sec-websocket-version',
 ];
 
 const defaultPassHeaders: string[] = [
@@ -95,42 +90,15 @@ function readHeaders(request: Request): BareHeaderData {
 
 	const headers = joinHeaders(request.headers);
 
-	for (const remoteProp of ['host', 'port', 'protocol', 'path']) {
-		const header = `x-bare-${remoteProp}`;
-
-		if (headers.has(header)) {
-			const value = headers.get(header)!;
-
-			switch (remoteProp) {
-				case 'port':
-					if (isNaN(parseInt(value))) {
-						throw new BareError(400, {
-							code: 'INVALID_BARE_HEADER',
-							id: `request.headers.${header}`,
-							message: `Header was not a valid integer.`,
-						});
-					}
-					break;
-				case 'protocol':
-					if (!validProtocols.includes(value)) {
-						throw new BareError(400, {
-							code: 'INVALID_BARE_HEADER',
-							id: `request.headers.${header}`,
-							message: `Header was invalid`,
-						});
-					}
-					break;
-			}
-
-			remote[remoteProp] = value;
-		} else {
-			throw new BareError(400, {
-				code: 'MISSING_BARE_HEADER',
-				id: `request.headers.${header}`,
-				message: `Header was not specified.`,
-			});
-		}
+	const xBareURL = headers.get('x-bare-url');
+	if (xBareURL === null) {
+		throw new BareError(400, {
+			code: 'MISSING_BARE_HEADER',
+			id: `request.headers.x-bare-url`,
+			message: `Header was not specified.`,
+		});
 	}
+	const remote = urlToRemote(new URL(xBareURL));
 
 	if (headers.has('x-bare-headers')) {
 		try {
