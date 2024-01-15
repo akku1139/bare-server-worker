@@ -254,10 +254,134 @@ const tunnelRequest: RouteCallback = async (request) => {
 	});
 };
 
+// https://github.com/tomphttp/bare-server-node/blob/master/src/V3.ts#L288C1-L412C1
+function readSocket(socket: WebSocket): Promise<SocketClientToServer> {
+	return new Promise((resolve, reject) => {
+		const messageListener = (event: MessageEvent) => {
+			cleanup();
 
-export default function registerV2(server: Server) {
-	server.routes.set('/v2/', tunnelRequest);
-	server.routes.set('/v2/ws-new-meta', newMeta);
-	server.routes.set('/v2/ws-meta', getMeta);
-	server.socketRoutes.set('/v2/', tunnelSocket);
+			if (typeof event.data !== 'string')
+				return reject(
+					new TypeError('the first websocket message was not a text frame')
+				);
+
+			try {
+				resolve(JSON.parse(event.data));
+			} catch (err) {
+				reject(err);
+			}
+		};
+
+		const closeListener = () => {
+			cleanup();
+		};
+
+		const cleanup = () => {
+			socket.removeEventListener('message', messageListener);
+			socket.removeEventListener('close', closeListener);
+			clearTimeout(timeout);
+		};
+
+		const timeout = setTimeout(() => {
+			cleanup();
+			reject(new Error('Timed out before metadata could be read'));
+		}, 10e3);
+
+		socket.addEventListener('message', messageListener);
+		socket.addEventListener('close', closeListener);
+	});
+}
+
+const tunnelSocket: SocketRouteCallback = async (
+	request,
+	socket,
+	head,
+	options
+) => {
+	options.wss.handleUpgrade(request.native, socket, head, async (client) => {
+		let _remoteSocket: WebSocket | undefined;
+
+		try {
+			const connectPacket = await readSocket(client);
+
+			if (connectPacket.type !== 'connect')
+				throw new Error('Client did not send open packet.');
+
+			loadForwardedHeaders(
+				connectPacket.forwardHeaders,
+				connectPacket.headers,
+				request
+			);
+
+			const [remoteReq, remoteSocket] = await webSocketFetch(
+				request,
+				connectPacket.headers,
+				new URL(connectPacket.remote),
+				connectPacket.protocols,
+				options
+			);
+
+			_remoteSocket = remoteSocket;
+
+			const setCookieHeader = remoteReq.headers['set-cookie'];
+			const setCookies =
+				setCookieHeader !== undefined
+					? Array.isArray(setCookieHeader)
+						? setCookieHeader
+						: [setCookieHeader]
+					: [];
+
+			client.send(
+				JSON.stringify({
+					type: 'open',
+					protocol: remoteSocket.protocol,
+					setCookies,
+				} as SocketServerToClient),
+				// use callback to wait for this message to buffer and finally send before doing any piping
+				// otherwise the client will receive a random message from the remote before our open message
+				() => {
+					remoteSocket.addEventListener('message', (event) => {
+						client.send(event.data);
+					});
+
+					client.addEventListener('message', (event) => {
+						remoteSocket.send(event.data);
+					});
+
+					remoteSocket.addEventListener('close', () => {
+						client.close();
+					});
+
+					client.addEventListener('close', () => {
+						remoteSocket.close();
+					});
+
+					remoteSocket.addEventListener('error', (error) => {
+						if (options.logErrors) {
+							console.error('Remote socket error:', error);
+						}
+
+						client.close();
+					});
+
+					client.addEventListener('error', (error) => {
+						if (options.logErrors) {
+							console.error('Serving socket error:', error);
+						}
+
+						remoteSocket.close();
+					});
+				}
+			);
+		} catch (err) {
+			if (options.logErrors) console.error(err);
+			client.close();
+			if (_remoteSocket) _remoteSocket.close();
+		}
+	});
+}
+
+export default function registerV3(server: Server) {
+	server.routes.set('/v3/', tunnelRequest);
+	server.socketRoutes.set('/v3/', tunnelSocket);
 }
