@@ -1,7 +1,5 @@
 import createBareServer from './createServer.ts';
 
-const kvDB = new KVAdapter(BARE);
-
 const bare = createBareServer('/', {
 	logErrors: true,
 });
