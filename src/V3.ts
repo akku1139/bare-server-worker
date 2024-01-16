@@ -5,6 +5,7 @@ import type { BareHeaders, BareRemote } from './requestUtil.ts';
 import { upgradeBareFetch } from './requestUtil.ts';
 import { bareFetch, randomHex } from './requestUtil.ts';
 import { joinHeaders, splitHeaders } from './splitHeaderUtil.ts';
+import { urlToRemote } from './remoteUtil.js';
 
 const forbiddenForwardHeaders: string[] = [
 	'connection',
@@ -72,14 +73,6 @@ interface BareHeaderData {
 	forwardHeaders: string[];
 }
 
-function urlToRemote(url: URL) {
-	return {
-		protocol: url.protocol,
-		host: url.hostname,
-		port: resolvePort(url),
-		path: url.pathname + url.search,
-	} as BareRemote;
-}
 
 function readHeaders(request: Request): BareHeaderData {
 	const sendHeaders = Object.setPrototypeOf({}, null);
