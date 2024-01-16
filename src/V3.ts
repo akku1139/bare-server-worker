@@ -88,6 +88,7 @@ function readHeaders(request: Request): BareHeaderData {
 	const headers = joinHeaders(request.headers);
 
 	const xBareURL = headers.get('x-bare-url');
+
 	if (xBareURL === null)
 		throw new BareError(400, {
 			code: 'MISSING_BARE_HEADER',
