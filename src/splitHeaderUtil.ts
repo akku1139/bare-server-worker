@@ -1,4 +1,4 @@
-import { BareError } from './BareServer.js';
+import { BareError } from './BareServer.ts';
 
 const MAX_HEADER_VALUE = 3072;
 

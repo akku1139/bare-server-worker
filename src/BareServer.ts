@@ -1,4 +1,4 @@
-import type { JSONDatabaseAdapter } from './Meta.js';
+import type { JSONDatabaseAdapter } from './Meta.ts';
 import createHttpError from 'http-errors';
 
 export interface BareErrorBody {

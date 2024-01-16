@@ -1,10 +1,10 @@
-import type { RouteCallback } from './BareServer.js';
-import { BareError } from './BareServer.js';
-import type Server from './BareServer.js';
-import type { BareHeaders, BareRemote } from './requestUtil.js';
-import { upgradeBareFetch } from './requestUtil.js';
-import { bareFetch, randomHex } from './requestUtil.js';
-import { joinHeaders, splitHeaders } from './splitHeaderUtil.js';
+import type { RouteCallback } from './BareServer.ts';
+import { BareError } from './BareServer.ts';
+import type Server from './BareServer.ts';
+import type { BareHeaders, BareRemote } from './requestUtil.ts';
+import { upgradeBareFetch } from './requestUtil.ts';
+import { bareFetch, randomHex } from './requestUtil.ts';
+import { joinHeaders, splitHeaders } from './splitHeaderUtil.ts';
 
 const forbiddenForwardHeaders: string[] = [
 	'connection',

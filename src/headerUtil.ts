@@ -1,4 +1,4 @@
-import type { BareHeaders } from './requestUtil.js';
+import type { BareHeaders } from './requestUtil.ts';
 
 export function objectFromRawHeaders(raw: string[]): BareHeaders {
 	const result: BareHeaders = {};

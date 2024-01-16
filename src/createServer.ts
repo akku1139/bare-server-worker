@@ -1,9 +1,9 @@
-import BareServer from './BareServer.js';
-import type { BareMaintainer } from './BareServer.js';
-import type { Database } from './Meta.js';
-import { JSONDatabaseAdapter } from './Meta.js';
-import { cleanupDatabase } from './Meta.js';
-import registerV3 from './V3.js';
+import BareServer from './BareServer.ts';
+import type { BareMaintainer } from './BareServer.ts';
+import type { Database } from './Meta.ts';
+import { JSONDatabaseAdapter } from './Meta.ts';
+import { cleanupDatabase } from './Meta.ts';
+import registerV3 from './V3.ts';
 
 interface BareServerInit {
 	logErrors?: boolean;
