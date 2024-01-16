@@ -21,10 +21,10 @@ export async function bareFetch(
 	request: Request,
 	signal: AbortSignal,
 	requestHeaders: BareHeaders,
-	remote: BareRemote
+	remote: URL
 ) {
 	return fetch(
-		`${remote.protocol}//${remote.host}:${remote.port}${remote.path}`,
+		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}`,
 		{
 			headers: requestHeaders as HeadersInit,
 			method: request.method,
@@ -39,10 +39,10 @@ export async function upgradeBareFetch(
 	request: Request,
 	signal: AbortSignal,
 	requestHeaders: BareHeaders,
-	remote: BareRemote
+	remote: URL
 ) {
 	const res = await fetch(
-		`${remote.protocol}//${remote.host}:${remote.port}${remote.path}`,
+		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}`,
 		{
 			headers: requestHeaders as HeadersInit,
 			method: request.method,
