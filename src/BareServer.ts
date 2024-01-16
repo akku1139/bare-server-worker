@@ -1,4 +1,3 @@
-import type { JSONDatabaseAdapter } from './Meta.ts';
 import createHttpError from 'http-errors';
 
 export interface BareErrorBody {
@@ -76,7 +75,6 @@ export interface Options {
 	logErrors: boolean;
 	localAddress?: string;
 	maintainer?: BareMaintainer;
-	database: JSONDatabaseAdapter;
 }
 
 export type RouteCallback = (

@@ -5,7 +5,7 @@ import type { BareHeaders, BareRemote } from './requestUtil.ts';
 import { upgradeBareFetch } from './requestUtil.ts';
 import { bareFetch, randomHex } from './requestUtil.ts';
 import { joinHeaders, splitHeaders } from './splitHeaderUtil.ts';
-import { urlToRemote } from './remoteUtil.js';
+import { remoteToURL, urlToRemote } from './remoteUtil.js';
 
 const forbiddenForwardHeaders: string[] = [
 	'connection',
@@ -29,10 +29,7 @@ const forbiddenPassHeaders: string[] = [
 ];
 
 // common defaults
-const defaultForwardHeaders: string[] = [
-	'accept-encoding',
-	'accept-language',
-];
+const defaultForwardHeaders: string[] = ['accept-encoding', 'accept-language'];
 
 const defaultPassHeaders: string[] = [
 	'content-encoding',
@@ -66,16 +63,15 @@ function loadForwardedHeaders(
 const splitHeaderValue = /,\s*/g;
 
 interface BareHeaderData {
-	remote: BareRemote;
+	remote: URL;
 	sendHeaders: BareHeaders;
 	passHeaders: string[];
 	passStatus: number[];
 	forwardHeaders: string[];
 }
 
-
 function readHeaders(request: Request): BareHeaderData {
-	const sendHeaders = Object.setPrototypeOf({}, null);
+	const sendHeaders:BareHeaders = Object.create(null);
 	const passHeaders = [...defaultPassHeaders];
 	const passStatus = [];
 	const forwardHeaders = [...defaultForwardHeaders];
@@ -92,13 +88,13 @@ function readHeaders(request: Request): BareHeaderData {
 	const headers = joinHeaders(request.headers);
 
 	const xBareURL = headers.get('x-bare-url');
-	if (xBareURL === null) {
+	if (xBareURL === null)
 		throw new BareError(400, {
 			code: 'MISSING_BARE_HEADER',
 			id: `request.headers.x-bare-url`,
 			message: `Header was not specified.`,
 		});
-	}
+
 	const remote = urlToRemote(new URL(xBareURL));
 
 	const xBareHeaders = headers.get('x-bare-headers');
@@ -211,7 +207,7 @@ function readHeaders(request: Request): BareHeaderData {
 	}
 
 	return {
-		remote,
+		remote: remoteToURL(remote),
 		sendHeaders,
 		passHeaders,
 		passStatus,
