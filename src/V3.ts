@@ -109,9 +109,9 @@ function readHeaders(request: Request): BareHeaderData {
 			id: `request.headers.x-bare-headers`,
 			message: `Header was not specified.`,
 		});
-	}
+
 	try {
-		const json = JSON.parse(headers.get('x-bare-headers')!);
+		const json = JSON.parse(xBareHeaders) as Record<string, string | string[]>;
 
 		for (const header in json) {
 			const value = json[header];
@@ -119,9 +119,9 @@ function readHeaders(request: Request): BareHeaderData {
 			if (typeof value === 'string') {
 				sendHeaders[header] = value;
 			} else if (Array.isArray(value)) {
-				const array = [];
+				const array: string[] = [];
 
-				for (const val in value) {
+				for (const val of value) {
 					if (typeof val !== 'string') {
 						throw new BareError(400, {
 							code: 'INVALID_BARE_HEADER',
