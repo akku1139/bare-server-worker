@@ -73,7 +73,6 @@ interface BareHeaderData {
 }
 
 function readHeaders(request: Request): BareHeaderData {
-	const remote = Object.setPrototypeOf({}, null);
 	const sendHeaders = Object.setPrototypeOf({}, null);
 	const passHeaders = [...defaultPassHeaders];
 	const passStatus = [];
