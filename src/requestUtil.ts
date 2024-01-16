@@ -24,7 +24,7 @@ export async function bareFetch(
 	remote: URL
 ) {
 	return fetch(
-		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}${remote.search}`,
+		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}`,
 		{
 			headers: requestHeaders as HeadersInit,
 			method: request.method,
