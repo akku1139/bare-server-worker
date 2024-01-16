@@ -17,13 +17,13 @@ export function randomHex(byteLength: number) {
 
 const noBody = ['GET', 'HEAD'];
 
-export async function bareFetch(
+export function bareFetch(
 	request: Request,
 	signal: AbortSignal,
 	requestHeaders: BareHeaders,
 	remote: BareRemote
 ) {
-	return await fetch(
+	return fetch(
 		`${remote.protocol}//${remote.host}:${remote.port}${remote.path}`,
 		{
 			headers: requestHeaders as HeadersInit,
