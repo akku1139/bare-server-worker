@@ -72,6 +72,15 @@ interface BareHeaderData {
 	forwardHeaders: string[];
 }
 
+function urlToRemote(url: URL) {
+	return {
+		protocol: url.protocol,
+		host: url.hostname,
+		port: resolvePort(url),
+		path: url.pathname + url.search,
+	} as BareRemote;
+}
+
 function readHeaders(request: Request): BareHeaderData {
 	const sendHeaders = Object.setPrototypeOf({}, null);
 	const passHeaders = [...defaultPassHeaders];
