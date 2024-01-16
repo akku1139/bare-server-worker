@@ -101,7 +101,9 @@ function readHeaders(request: Request): BareHeaderData {
 	}
 	const remote = urlToRemote(new URL(xBareURL));
 
-	if (headers.has('x-bare-headers')) {
+	const xBareHeaders = headers.get('x-bare-headers');
+
+	if (xBareHeaders === null)
 		throw new BareError(400, {
 			code: 'MISSING_BARE_HEADER',
 			id: `request.headers.x-bare-headers`,
