@@ -17,7 +17,7 @@ export function randomHex(byteLength: number) {
 
 const noBody = ['GET', 'HEAD'];
 
-export function bareFetch(
+export async function bareFetch(
 	request: Request,
 	signal: AbortSignal,
 	requestHeaders: BareHeaders,
