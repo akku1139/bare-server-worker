@@ -3,9 +3,10 @@ import { BareError } from './BareServer.ts';
 import type Server from './BareServer.ts';
 import type { BareHeaders, BareRemote } from './requestUtil.ts';
 import { upgradeBareFetch } from './requestUtil.ts';
-import { bareFetch, randomHex } from './requestUtil.ts';
+import { bareFetch, randomHex, nullBodyStatus } from './requestUtil.ts';
 import { joinHeaders, splitHeaders } from './splitHeaderUtil.ts';
 import { remoteToURL, urlToRemote } from './remoteUtil.js';
+import { mapHeadersFromArray } from './headerUtil.ts';
 
 const forbiddenForwardHeaders: string[] = [
 	'connection',
@@ -243,11 +244,15 @@ const tunnelRequest: RouteCallback = async (request) => {
 		responseHeaders.set('x-bare-status-text', response.statusText);
 		responseHeaders.set(
 			'x-bare-headers',
-			JSON.stringify(Object.fromEntries(response.headers))
+			JSON.stringify(
+				mapHeadersFromArray(rawHeaderNames(response.rawHeaders), {
+					...(<BareHeaders>response.headers),
+				})
+			)
 		);
 	}
 
-	return new Response(response.body, {
+	return new Response(nullBodyStatus.includes(status) ? undefined : response.body, {
 		status,
 		headers: splitHeaders(responseHeaders),
 	});

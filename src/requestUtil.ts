@@ -16,6 +16,7 @@ export function randomHex(byteLength: number) {
 }
 
 const noBody = ['GET', 'HEAD'];
+export const nullBodyStatus = [101, 204, 205, 304];
 
 export async function bareFetch(
 	request: Request,
