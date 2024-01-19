@@ -42,7 +42,7 @@ export async function upgradeBareFetch(
 	remote: URL
 ) {
 	const res = await fetch(
-		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}`,
+		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}${remote.search}`,
 		{
 			headers: requestHeaders as HeadersInit,
 			method: request.method,
