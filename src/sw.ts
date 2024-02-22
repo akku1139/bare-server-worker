@@ -1,10 +1,14 @@
 import createBareServer from './createServer.ts';
 
 const bare = createBareServer('/', {
-	logErrors: true,
+  logErrors: true,
 });
 
-addEventListener('fetch', (event) => {
-	if (bare.shouldRoute(event.request))
-		event.respondWith(bare.routeRequest(event.request));
-});
+interface Env {}
+
+export default {
+  async fetch(request: Request, env: Env) {
+    if (bare.shouldRoute(request))
+      event.respondWith(bare.routeRequest(request));  },
+}
+
