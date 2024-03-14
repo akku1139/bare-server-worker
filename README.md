@@ -1,6 +1,7 @@
 Porting Bare Server V3 to Cloudflare Workers.
 It's unfinished and has problems.
 
+At least WebSocket is broken.
 
 # TOMP Bare Server
 
