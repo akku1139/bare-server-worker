@@ -22,7 +22,7 @@ This port requires some technical knowledge (Cloudflare KV, Workers). You will h
 1. Clone this repository
 
 ```sh
-git clone https://github.com/tomphttp/bare-server-worker.git
+git clone --filter blob:none https://github.com/akku1139/bare-server-worker.git
 ```
 
 2. Install
