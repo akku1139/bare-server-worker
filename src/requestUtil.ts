@@ -54,3 +54,50 @@ export async function upgradeBareFetch(
 
 	return [res, res.webSocket] as [Response, WebSocket];
 }
+
+/**
+ * Creates a bidirectional pipe between two WebSockets
+ */
+export function pipeWebSockets(ws1: WebSocket, ws2: WebSocket, logErrors: boolean = false) {
+	ws1.addEventListener('message', (event) => {
+		if (ws2.readyState === WebSocket.OPEN) {
+			ws2.send(event.data);
+		}
+	});
+
+	ws2.addEventListener('message', (event) => {
+		if (ws1.readyState === WebSocket.OPEN) {
+			ws1.send(event.data);
+		}
+	});
+
+	ws1.addEventListener('close', () => {
+		if (ws2.readyState === WebSocket.OPEN) {
+			ws2.close();
+		}
+	});
+
+	ws2.addEventListener('close', () => {
+		if (ws1.readyState === WebSocket.OPEN) {
+			ws1.close();
+		}
+	});
+
+	ws1.addEventListener('error', (error) => {
+		if (logErrors) {
+			console.error('WebSocket 1 error:', error);
+		}
+		if (ws2.readyState === WebSocket.OPEN) {
+			ws2.close();
+		}
+	});
+
+	ws2.addEventListener('error', (error) => {
+		if (logErrors) {
+			console.error('WebSocket 2 error:', error);
+		}
+		if (ws1.readyState === WebSocket.OPEN) {
+			ws1.close();
+		}
+	});
+}
