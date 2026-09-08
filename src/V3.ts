@@ -1,8 +1,8 @@
 import type { RouteCallback } from './BareServer.ts';
 import { BareError } from './BareServer.ts';
 import type Server from './BareServer.ts';
-import type { BareHeaders, BareRemote } from './requestUtil.ts';
-import { bareFetch } from './requestUtil.ts';
+import type { BareHeaders } from './requestUtil.ts';
+import { bareFetch, upgradeBareFetch } from './requestUtil.ts';
 import { joinHeaders, splitHeaders } from './splitHeaderUtil.ts';
 import { remoteToURL, urlToRemote } from './remoteUtil.js';
 
@@ -267,7 +267,6 @@ interface SocketOpenPacket {
 }
 
 type SocketClientToServer = SocketConnectPacket;
-type SocketServerToClient = SocketOpenPacket;
 
 function readSocket(socket: WebSocket): Promise<SocketClientToServer> {
 	return new Promise((resolve, reject) => {
@@ -288,6 +287,7 @@ function readSocket(socket: WebSocket): Promise<SocketClientToServer> {
 
 		const closeListener = () => {
 			cleanup();
+			reject(new Error('WebSocket closed before connect packet'));
 		};
 
 		const cleanup = () => {
@@ -316,110 +316,143 @@ const tunnelSocket: RouteCallback = async (request, options) => {
 		});
 	}
 
-	// Accept the WebSocket connection on Cloudflare Workers
-	const [client, server] = Object.values(new WebSocketPair());
+	// Cloudflare Workers WebSocketPair: [0] = client, [1] = server
+	const pair = new WebSocketPair();
+	const client = pair[0];
+	const server = pair[1];
 
 	// Handle the server side of the WebSocket
 	(async () => {
-		let _remoteSocket: WebSocket | undefined;
+		let remoteSocket: WebSocket | undefined;
 
 		try {
-			// Read the connect packet from the client
 			server.accept();
 			const connectPacket = await readSocket(server);
 
 			if (connectPacket.type !== 'connect')
 				throw new Error('Client did not send connect packet.');
 
+			const headers: BareHeaders = { ...connectPacket.headers };
+
 			loadForwardedHeaders(
-				connectPacket.forwardHeaders,
-				connectPacket.headers,
+				connectPacket.forwardHeaders || [],
+				headers,
 				request,
 			);
 
-			// Add required WebSocket headers
-			connectPacket.headers['Host'] = new URL(connectPacket.remote).host;
-			connectPacket.headers['Upgrade'] = 'websocket';
-			connectPacket.headers['Connection'] = 'Upgrade';
-
-			// Connect to the remote WebSocket
-			const remoteUrl = new URL(connectPacket.remote);
-			const protocol = remoteUrl.protocol === 'wss:' ? 'https:' : 'http:';
-			const httpUrl = `${protocol}//${remoteUrl.host}${remoteUrl.pathname}${remoteUrl.search}`;
-
-			// Create headers for the remote request
-			const remoteHeaders = new Headers();
-			for (const [key, value] of Object.entries(connectPacket.headers)) {
-				remoteHeaders.set(key, value);
+			let remoteUrl: URL;
+			try {
+				remoteUrl = new URL(connectPacket.remote);
+			} catch {
+				throw new Error('Invalid remote URL in connect packet');
+			}
+			if (remoteUrl.protocol !== 'ws:' && remoteUrl.protocol !== 'wss:') {
+				throw new Error('Remote protocol must be ws: or wss:');
 			}
 
-			// Use fetch with WebSocket upgrade on Cloudflare Workers
-			const remoteResponse = await fetch(httpUrl, {
-				headers: remoteHeaders,
-				method: request.method,
-			});
-
-			if (!remoteResponse.webSocket) {
-				throw new Error("Remote didn't accept WebSocket");
+			if (!headers['Host'] && !headers['host']) {
+				headers['Host'] = remoteUrl.host;
 			}
 
-			_remoteSocket = remoteResponse.webSocket;
-			_remoteSocket.accept();
+			const [remoteRes, remoteWs] = await upgradeBareFetch(
+				headers,
+				remoteUrl,
+				connectPacket.protocols || [],
+				request.signal,
+			);
 
-			// Get set-cookie headers from the remote response
+			remoteSocket = remoteWs;
+			remoteSocket.accept();
+
 			const setCookies: string[] = [];
-			for (const [key, value] of remoteResponse.headers.entries()) {
-				if (key.toLowerCase() === 'set-cookie') {
-					setCookies.push(value);
-				}
+			const anyHeaders = remoteRes.headers as Headers & {
+				getSetCookie?: () => string[];
+			};
+			if (typeof anyHeaders.getSetCookie === 'function') {
+				setCookies.push(...anyHeaders.getSetCookie());
+			} else {
+				const single = remoteRes.headers.get('set-cookie');
+				if (single) setCookies.push(single);
 			}
 
-			// Send the open packet to the client
 			const openPacket: SocketOpenPacket = {
 				type: 'open',
-				protocol: remoteResponse.headers.get('sec-websocket-protocol') || '',
+				protocol: remoteRes.headers.get('sec-websocket-protocol') || '',
 				setCookies,
 			};
 			server.send(JSON.stringify(openPacket));
 
-			// Pipe messages between client and remote
-			_remoteSocket.addEventListener('message', (event) => {
-				server.send(event.data);
+			// Pipe messages (preserve text/binary)
+			remoteSocket.addEventListener('message', (event) => {
+				try {
+					server.send(event.data);
+				} catch {
+					/* ignore */
+				}
 			});
 
 			server.addEventListener('message', (event) => {
-				_remoteSocket!.send(event.data);
+				try {
+					remoteSocket!.send(event.data);
+				} catch {
+					/* ignore */
+				}
 			});
 
-			_remoteSocket.addEventListener('close', () => {
-				server.close();
+			remoteSocket.addEventListener('close', () => {
+				try {
+					server.close();
+				} catch {
+					/* ignore */
+				}
 			});
 
 			server.addEventListener('close', () => {
-				_remoteSocket!.close();
+				try {
+					remoteSocket!.close();
+				} catch {
+					/* ignore */
+				}
 			});
 
-			_remoteSocket.addEventListener('error', (error) => {
+			remoteSocket.addEventListener('error', (error) => {
 				if (options.logErrors) {
 					console.error('Remote socket error:', error);
 				}
-				server.close();
+				try {
+					server.close();
+				} catch {
+					/* ignore */
+				}
 			});
 
 			server.addEventListener('error', (error) => {
 				if (options.logErrors) {
 					console.error('Serving socket error:', error);
 				}
-				_remoteSocket!.close();
+				try {
+					remoteSocket!.close();
+				} catch {
+					/* ignore */
+				}
 			});
 		} catch (err) {
 			if (options.logErrors) console.error(err);
-			server.close();
-			if (_remoteSocket) _remoteSocket.close();
+			try {
+				server.close();
+			} catch {
+				/* ignore */
+			}
+			if (remoteSocket) {
+				try {
+					remoteSocket.close();
+				} catch {
+					/* ignore */
+				}
+			}
 		}
 	})();
 
-	// Return the client side of the WebSocket to Cloudflare
 	return new Response(null, {
 		status: 101,
 		webSocket: client,
