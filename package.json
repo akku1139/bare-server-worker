@@ -40,15 +40,15 @@
 		"source-map-support": "^0.5.21"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20250906.0",
-		"@ianvs/prettier-plugin-sort-imports": "^3.7.1",
+		"@cloudflare/workers-types": "^4.20260702.1",
+		"@ianvs/prettier-plugin-sort-imports": "^3.7.2",
 		"@types/http-errors": "^2.0.5",
-		"@types/node": "^22.10.0",
-		"@typescript-eslint/eslint-plugin": "^5.46.0",
+		"@types/node": "^22.20.1",
+		"@typescript-eslint/eslint-plugin": "^5.62.0",
 		"@typescript-eslint/parser": "^8.69.0",
-		"eslint": "^8.29.0",
-		"prettier": "^2.8.1",
-		"tsx": "^4.19.2",
-		"typescript": "^5.6.3"
+		"eslint": "^8.57.1",
+		"prettier": "^2.8.8",
+		"tsx": "^4.23.13",
+		"typescript": "^5.9.3"
 	}
 }
