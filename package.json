@@ -35,13 +35,13 @@
 		"test": "echo \"No automated tests yet; WebSocket tests require miniflare + bare-transport\" && exit 0"
 	},
 	"dependencies": {
-		"http-errors": "^2.0.0",
+		"http-errors": "^2.0.1",
 		"source-map-support": "^0.5.21"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20221111.1",
 		"@ianvs/prettier-plugin-sort-imports": "^3.7.1",
-		"@types/http-errors": "^2.0.1",
+		"@types/http-errors": "^2.0.5",
 		"@typescript-eslint/eslint-plugin": "^5.46.0",
 		"@typescript-eslint/parser": "^8.69.0",
 		"eslint": "^8.29.0",
