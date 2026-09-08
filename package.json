@@ -37,7 +37,8 @@
 	},
 	"dependencies": {
 		"http-errors": "^2.0.1",
-		"source-map-support": "^0.5.21"
+		"source-map-support": "^0.5.21",
+		"wrangler": "^4.129.0"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20260702.1",
