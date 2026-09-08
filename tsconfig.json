@@ -5,13 +5,16 @@
 		"lib": ["ESNext"],
 		"target": "ESNext",
 		"module": "ESNext",
-		"moduleResolution": "Node16",
+		"moduleResolution": "Bundler",
 		"strict": true,
 		"stripInternal": true,
 		"esModuleInterop": true,
 		"declaration": false,
 		"sourceMap": true,
-		"resolveJsonModule": false
+		"resolveJsonModule": false,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"skipLibCheck": true
 	},
 	"include": ["src"]
 }
