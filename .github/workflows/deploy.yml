@@ -11,6 +11,11 @@ jobs:
     name: Deploy
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/setup@v1
+        with:
+          version: 11
+          runtime: node@24
+          cache: true
       - name: Deploy
         uses: cloudflare/wrangler-action@v4
         with:
