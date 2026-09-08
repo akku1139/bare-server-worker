@@ -361,8 +361,10 @@ const tunnelSocket: RouteCallback = async (request, options) => {
 				request.signal,
 			);
 
-			remoteSocket = remoteWs;
-			remoteSocket.accept();
+			// Assign to a const so TS narrows for the rest of the block
+			const rs = remoteWs;
+			remoteSocket = rs;
+			rs.accept();
 
 			const setCookies: string[] = [];
 			const anyHeaders = remoteRes.headers as Headers & {
@@ -383,7 +385,7 @@ const tunnelSocket: RouteCallback = async (request, options) => {
 			server.send(JSON.stringify(openPacket));
 
 			// Pipe messages (preserve text/binary)
-			remoteSocket.addEventListener('message', (event) => {
+			rs.addEventListener('message', (event) => {
 				try {
 					server.send(event.data);
 				} catch {
@@ -393,13 +395,13 @@ const tunnelSocket: RouteCallback = async (request, options) => {
 
 			server.addEventListener('message', (event) => {
 				try {
-					remoteSocket!.send(event.data);
+					rs.send(event.data);
 				} catch {
 					/* ignore */
 				}
 			});
 
-			remoteSocket.addEventListener('close', () => {
+			rs.addEventListener('close', () => {
 				try {
 					server.close();
 				} catch {
@@ -409,13 +411,13 @@ const tunnelSocket: RouteCallback = async (request, options) => {
 
 			server.addEventListener('close', () => {
 				try {
-					remoteSocket!.close();
+					rs.close();
 				} catch {
 					/* ignore */
 				}
 			});
 
-			remoteSocket.addEventListener('error', (error) => {
+			rs.addEventListener('error', (error) => {
 				if (options.logErrors) {
 					console.error('Remote socket error:', error);
 				}
@@ -431,7 +433,7 @@ const tunnelSocket: RouteCallback = async (request, options) => {
 					console.error('Serving socket error:', error);
 				}
 				try {
-					remoteSocket!.close();
+					rs.close();
 				} catch {
 					/* ignore */
 				}
