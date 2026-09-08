@@ -30,7 +30,9 @@
 	"scripts": {
 		"start": "npx miniflare dist/sw.js",
 		"build": "rollup -c",
-		"build:watch": "rollup -cw"
+		"build:watch": "rollup -cw",
+		"typecheck": "tsc --noEmit",
+		"test": "echo \"No automated tests yet; WebSocket tests require miniflare + bare-transport\" && exit 0"
 	},
 	"dependencies": {
 		"http-errors": "^2.0.0",
