@@ -21,7 +21,7 @@ export async function bareFetch(
 	request: Request,
 	signal: AbortSignal,
 	requestHeaders: BareHeaders,
-	remote: URL
+	remote: URL,
 ) {
 	return fetch(
 		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}${remote.search}`,
@@ -31,26 +31,56 @@ export async function bareFetch(
 			body: noBody.includes(request.method) ? undefined : await request.blob(),
 			signal,
 			redirect: 'manual',
-		}
+		},
 	);
 }
 
+/**
+ * Establish an outbound WebSocket connection via fetch (Cloudflare Workers).
+ * The remote URL must use ws: or wss:; it is converted to http(s) for fetch.
+ */
 export async function upgradeBareFetch(
-	request: Request,
-	signal: AbortSignal,
 	requestHeaders: BareHeaders,
-	remote: URL
-) {
-	const res = await fetch(
-		`${remote.protocol}//${remote.host}:${remote.port}${remote.pathname}${remote.search}`,
-		{
-			headers: requestHeaders as HeadersInit,
-			method: request.method,
-			signal,
+	remote: URL,
+	protocols: string[] = [],
+	signal?: AbortSignal,
+): Promise<[Response, WebSocket]> {
+	// Workers expect http(s) URL for WebSocket upgrade fetch
+	const isSecure = remote.protocol === 'wss:';
+	const protocol = isSecure ? 'https:' : 'http:';
+	const defaultPort = isSecure ? '443' : '80';
+	const portPart =
+		remote.port && remote.port !== '' && String(remote.port) !== defaultPort
+			? `:${remote.port}`
+			: '';
+	const url = `${protocol}//${remote.host}${portPart}${remote.pathname}${remote.search}`;
+
+	const headers = new Headers();
+	for (const [key, value] of Object.entries(requestHeaders)) {
+		if (Array.isArray(value)) {
+			for (const v of value) headers.append(key, v);
+		} else {
+			headers.set(key, value);
 		}
-	);
+	}
 
-	if (!res.webSocket) throw new Error("server didn't accept WebSocket");
+	// Required for WebSocket upgrade
+	headers.set('Upgrade', 'websocket');
+	headers.set('Connection', 'Upgrade');
 
-	return [res, res.webSocket] as [Response, WebSocket];
+	if (protocols.length > 0) {
+		headers.set('Sec-WebSocket-Protocol', protocols.join(', '));
+	}
+
+	const res = await fetch(url, {
+		headers,
+		method: 'GET',
+		signal,
+	});
+
+	if (!res.webSocket) {
+		throw new Error("server didn't accept WebSocket");
+	}
+
+	return [res, res.webSocket];
 }
