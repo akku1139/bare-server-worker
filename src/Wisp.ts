@@ -8,35 +8,36 @@
 import type { RouteCallback } from './BareServer.ts';
 import type Server from './BareServer.ts';
 import { BareError } from './BareServer.ts';
+import { connect } from 'cloudflare:sockets';
 
 // Packet types
-const PACKET_CONNECT = 0x01;
-const PACKET_DATA = 0x02;
-const PACKET_CONTINUE = 0x03;
-const PACKET_CLOSE = 0x04;
-const PACKET_INFO = 0x05;
+export const PACKET_CONNECT = 0x01;
+export const PACKET_DATA = 0x02;
+export const PACKET_CONTINUE = 0x03;
+export const PACKET_CLOSE = 0x04;
+export const PACKET_INFO = 0x05;
 
 // Stream types
-const STREAM_TCP = 0x01;
-const STREAM_UDP = 0x02;
+export const STREAM_TCP = 0x01;
+export const STREAM_UDP = 0x02;
 
 // Close reasons
-const CLOSE_UNKNOWN = 0x01;
-const CLOSE_VOLUNTARY = 0x02;
-const CLOSE_NETWORK = 0x03;
-const CLOSE_INVALID_INFO = 0x41;
-const CLOSE_UNREACHABLE = 0x42;
-const CLOSE_TIMEOUT = 0x43;
-const CLOSE_REFUSED = 0x44;
-const CLOSE_BLOCKED = 0x48;
+export const CLOSE_UNKNOWN = 0x01;
+export const CLOSE_VOLUNTARY = 0x02;
+export const CLOSE_NETWORK = 0x03;
+export const CLOSE_INVALID_INFO = 0x41;
+export const CLOSE_UNREACHABLE = 0x42;
+export const CLOSE_TIMEOUT = 0x43;
+export const CLOSE_REFUSED = 0x44;
+export const CLOSE_BLOCKED = 0x48;
 
 // Extensions
-const EXT_STREAM_OPEN_CONFIRMATION = 0x05;
+export const EXT_STREAM_OPEN_CONFIRMATION = 0x05;
 
 /** Default CONTINUE window size (packets the server will buffer per stream). */
-const BUFFER_SIZE = 127;
+export const BUFFER_SIZE = 127;
 
-function encodePacket(
+export function encodePacket(
 	type: number,
 	streamId: number,
 	payload: ArrayBuffer | ArrayBufferView = new Uint8Array(0),
@@ -53,7 +54,7 @@ function encodePacket(
 	return buf;
 }
 
-function parsePacket(data: ArrayBuffer): {
+export function parsePacket(data: ArrayBuffer): {
 	type: number;
 	streamId: number;
 	payload: Uint8Array;
@@ -69,7 +70,7 @@ function parsePacket(data: ArrayBuffer): {
 	};
 }
 
-function buildInfoPacket(): ArrayBuffer {
+export function buildInfoPacket(): ArrayBuffer {
 	// Major=2, Minor=1, extension: Stream Open Confirmation (id=0x05, length=0)
 	const ext = new Uint8Array(1 + 4); // id + length (0)
 	ext[0] = EXT_STREAM_OPEN_CONFIRMATION;
@@ -81,10 +82,29 @@ function buildInfoPacket(): ArrayBuffer {
 	return encodePacket(PACKET_INFO, 0, payload);
 }
 
+export function buildContinuePacket(streamId: number, bufferRemaining: number): ArrayBuffer {
+	const cont = new ArrayBuffer(4);
+	new DataView(cont).setUint32(0, bufferRemaining, true);
+	return encodePacket(PACKET_CONTINUE, streamId, cont);
+}
+
+export function buildConnectPayload(
+	streamType: number,
+	port: number,
+	hostname: string,
+): Uint8Array {
+	const hostBytes = new TextEncoder().encode(hostname);
+	const payload = new Uint8Array(1 + 2 + hostBytes.byteLength);
+	payload[0] = streamType;
+	new DataView(payload.buffer).setUint16(1, port, true);
+	payload.set(hostBytes, 3);
+	return payload;
+}
+
 interface StreamState {
 	socket: {
-		readable: ReadableStream;
-		writable: WritableStream;
+		readable: ReadableStream<Uint8Array>;
+		writable: WritableStream<Uint8Array>;
 		close: () => Promise<void>;
 		closed: Promise<void>;
 	};
@@ -131,18 +151,8 @@ async function handleWispConnection(
 	// Send server INFO (stream ID 0)
 	send(buildInfoPacket());
 
-	// Also send CONTINUE on stream 0 as initial buffer advertisement (v1 compat / common practice)
-	send(
-		encodePacket(
-			PACKET_CONTINUE,
-			0,
-			(() => {
-				const b = new ArrayBuffer(4);
-				new DataView(b).setUint32(0, BUFFER_SIZE, true);
-				return b;
-			})(),
-		),
-	);
+	// CONTINUE on stream 0 as initial buffer advertisement (v1 compat)
+	send(buildContinuePacket(0, BUFFER_SIZE));
 
 	server.addEventListener('close', () => {
 		void cleanupAll();
@@ -153,18 +163,18 @@ async function handleWispConnection(
 		void cleanupAll();
 	});
 
-	server.addEventListener('message', (event) => {
+	server.addEventListener('message', (event: MessageEvent) => {
 		void (async () => {
 			try {
-				let data: ArrayBuffer;
-				if (event.data instanceof ArrayBuffer) {
-					data = event.data;
-				} else if (event.data instanceof Blob) {
-					data = await event.data.arrayBuffer();
-				} else {
-					// text frames are invalid for Wisp binary protocol
+				// Workers WS binary frames are ArrayBuffer when binaryType is arraybuffer.
+				// MessageEvent.data is typed as string | ArrayBuffer in workers-types.
+				if (typeof event.data === 'string') {
+					return; // text frames are invalid for Wisp
+				}
+				if (!(event.data instanceof ArrayBuffer)) {
 					return;
 				}
+				const data: ArrayBuffer = event.data;
 
 				const { type, streamId, payload } = parsePacket(data);
 
@@ -186,7 +196,7 @@ async function handleWispConnection(
 							break;
 						}
 
-						const streamType = payload[0];
+						const streamType = payload[0]!;
 						const port = new DataView(
 							payload.buffer,
 							payload.byteOffset + 1,
@@ -237,8 +247,6 @@ async function handleWispConnection(
 						}
 
 						try {
-							// Dynamic import so typecheck still works without the module in types
-							const { connect } = await import('cloudflare:sockets');
 							const socket = connect(
 								{ hostname, port },
 								{ allowHalfOpen: true },
@@ -254,9 +262,7 @@ async function handleWispConnection(
 							streams.set(streamId, state);
 
 							// Stream Open Confirmation: send CONTINUE when connected
-							const cont = new ArrayBuffer(4);
-							new DataView(cont).setUint32(0, BUFFER_SIZE, true);
-							send(encodePacket(PACKET_CONTINUE, streamId, cont));
+							send(buildContinuePacket(streamId, BUFFER_SIZE));
 
 							// Pipe remote -> client
 							const reader = socket.readable.getReader();
@@ -306,9 +312,7 @@ async function handleWispConnection(
 							state.packetsSinceContinue += 1;
 							if (state.packetsSinceContinue >= BUFFER_SIZE) {
 								state.packetsSinceContinue = 0;
-								const cont = new ArrayBuffer(4);
-								new DataView(cont).setUint32(0, BUFFER_SIZE, true);
-								send(encodePacket(PACKET_CONTINUE, streamId, cont));
+								send(buildContinuePacket(streamId, BUFFER_SIZE));
 							}
 						} catch {
 							await closeStream(streamId, CLOSE_NETWORK);
