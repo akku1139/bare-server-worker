@@ -50,6 +50,6 @@
 		"eslint": "^8.57.1",
 		"prettier": "^2.8.8",
 		"tsx": "^4.23.13",
-		"typescript": "^5.9.3"
+		"typescript": "^6.0.3"
 	}
 }
