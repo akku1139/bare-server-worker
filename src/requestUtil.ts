@@ -58,7 +58,11 @@ export async function upgradeBareFetch(
 /**
  * Creates a bidirectional pipe between two WebSockets
  */
-export function pipeWebSockets(ws1: WebSocket, ws2: WebSocket, logErrors: boolean = false) {
+export function pipeWebSockets(
+	ws1: WebSocket,
+	ws2: WebSocket,
+	logErrors: boolean = false
+) {
 	ws1.addEventListener('message', (event) => {
 		if (ws2.readyState === WebSocket.OPEN) {
 			ws2.send(event.data);
